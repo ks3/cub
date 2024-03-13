@@ -2,7 +2,7 @@
 
 A CLI for the Bear notes app.
 
-Usage: cub <action> [option ...]
+Usage: cub &lt;action&gt; [option ...]
 
 Currently supported actions:
 - create
@@ -12,7 +12,7 @@ Currently supported actions:
 - show
 - token
 
-Use 'cub help <action>' to get action specific help.
+Use 'cub help &lt;action&gt;' to get action specific help.
 
 ## create
 
