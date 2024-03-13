@@ -1,0 +1,432 @@
+#!/bin/bash
+#########################################################################################
+# ʕ•ᴥ•ʔ Cub - https://cub.sh
+# A CLI interface to the Bear notes app.
+###
+
+
+declare -r CONFIG="${HOME}/.cubrc"
+declare -r DEFAULT_XCALL_PATH="/Applications/xcall.app/Contents/MacOS"
+
+declare -a DEPENDENCIES=("jq" "xcall")
+
+# These are accessed by indirect reference, so shellcheck is unable to validate them.
+# shellcheck disable=SC2034
+declare -r URL_jq="https://jqlang.github.io/jq/download/"
+# shellcheck disable=SC2034
+declare -r URL_xcall="https://github.com/martinfinke/xcall"
+
+# Defined actions. These are used to display available actions in the help message.
+declare -a ACTIONS
+ACTIONS+=("create")
+ACTIONS+=("edit")
+ACTIONS+=("help")
+ACTIONS+=("search")
+ACTIONS+=("show")
+ACTIONS+=("token")
+
+# Add default xcall path if xcall isn't found.
+if ! hash xcall &>/dev/null; then
+    if [[ ":$PATH:" != *":${DEFAULT_XCALL_PATH}:"* ]]; then
+        PATH="${PATH}:${DEFAULT_XCALL_PATH}"
+    fi
+fi
+
+
+#########
+# bear()
+# Interact with the Bear app using it's x-callback-url scheme.
+# https://bear.app/faq/x-callback-url-scheme-documentation/
+###
+bear() {
+    local url="bear://x-callback-url"
+    local params="open_note=no&show_window=no"
+
+    local action="$1"
+    shift
+
+    if [[ -z $action ]]; then
+        echo "Usage: bear <action> [parameter=value ...]" >&2
+        return 1
+    fi
+
+    local param
+    for param in "$@"; do
+        local name="$(url_encode "${param%=*}")"
+        params="${params}&${name}"
+        if [[ $param =~ = ]]; then
+            local value="$(url_encode "${param#"${name}="}")"
+            params="${params}=${value}"
+        fi
+    done
+
+    xcall -url "${url}/${action}?${params}" 2> >(show_error "${url}/${action}?${params}")
+}
+
+#########
+# cub_create()
+# Create a new note.
+###
+cub_create() {
+    local tmpfile="$(mktemp)" || return
+    editor "$tmpfile"
+    local text="$(jq -Rrs '.' < "$tmpfile")"
+    bear create "text=${text}" | jq -r '.identifier'
+    rm -f "$tmpfile"
+}
+cub_create_help() {
+    echo "Create a new note."
+    echo
+    echo "Example:"
+    echo "  cub create"
+}
+
+
+#########
+# cub_doc()
+# Display all available Cub documentation.
+###
+cub_doc() {
+    cub_help
+    echo
+    local a
+    for a in "${ACTIONS[@]}"; do
+        local help="cub_${a}_help"
+        if [[ $(type -t "$help") == function ]]; then
+            echo "## ${a}"
+            echo
+            "$help"
+            echo
+        fi
+    done
+}
+
+#########
+# cub_edit()
+# Edit an existing note.
+###
+cub_edit() {
+    local arg
+    if [[ $1 == id=* || $1 == title=* ]]; then
+        arg="$*"
+    elif [[ -n $1 ]]; then
+        arg="title=${*}"
+    fi
+
+    if [[ -z $arg ]]; then
+        cub_edit_help
+        return 1
+    fi
+
+    local json="$(bear open-note "$arg")"
+    if [[ -n $json ]]; then
+        local identifier="$(echo "$json" | jq -r .identifier)"
+        local content="$(echo "$json" | jq -r ".note")"
+        local tmpfile="$(mktemp)" || return
+        echo -n "$content" > "$tmpfile"
+        editor "$tmpfile"
+        local text="$(jq -Rrs '.' < "$tmpfile")"
+        text="${text#\"}"
+        text="${text%\"}"
+        bear add-text "id=${identifier}" "text=${text}" "mode=replace_all" >/dev/null
+        rm -f "$tmpfile"
+    fi
+}
+cub_edit_help() {
+    echo "Edit an existing note. Requires a title or identifier."
+    echo
+    echo "Examples:"
+    echo "  cub edit My Note Title"
+    echo "  cub edit title=My Note Title"
+    echo "  cub edit id=XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+}
+
+#########
+# cub_help()
+# Display the Cub help message.
+###
+cub_help() {
+    if [[ -z $1 ]]; then
+        echo "ʕ•ᴥ•ʔ Cub - https://cub.sh"
+        echo
+        echo "A CLI for the Bear notes app."
+        echo
+        echo "Usage: ${0##*/} <action> [option ...]"
+        echo
+        echo "Currently supported actions:"
+        local a
+        for a in "${ACTIONS[@]}"; do
+            echo "  ${a}"
+        done
+        echo
+        echo "Use 'cub help <action>' to get action specific help."
+    else
+        local function="cub_${1}_help"
+        if [[ $(type -t "$function") == function ]]; then
+            "$function"
+        else
+            echo "No help found for ${1}." >&2
+        fi
+    fi
+}
+cub_help_help() {
+    echo "Show help information for the given action."
+    echo
+    echo "Examples:"
+    for a in "${ACTIONS[@]}"; do
+        [[ $a == help ]] && continue
+        echo "  cub help ${a}"
+    done
+}
+
+#########
+# cub_search()
+# Search all notes for a term and / or tag.
+#
+# TODO Update this to query the Bear database directly as using the x-callback-url causes
+#      the search results to also display in the Bear application window.
+#      https://bear.app/faq/where-are-bears-notes-located/
+# TODO Update the results to be formatted better / in columns.
+# TODO Show tags for searxh results to help identify notes.
+###
+cub_search() {
+    local term
+    local tag
+    local token="$(get_bear_token)"
+    local all="no"
+
+    local in=term
+    for p in "$@"; do
+        if [[ $p == --all ]]; then
+            all="yes"
+        elif [[ $p =~ = ]]; then
+            local name="${p%=*}"
+            if [[ $name == tag ]]; then
+                in=tag
+                tag="${p#"${name}="}"
+            elif [[ $name == term ]]; then
+                in=term
+                term="${p#"${name}="}"
+            else
+                if [[ $in == tag ]]; then
+                    tag="${tag}${tag:+ }${p}"
+                elif [[ $in == term ]]; then
+                    term="${term}${term:+ }${p}"
+                else
+                    echo "WARNING: Unable to determine if ${p} is a term or tag." >&2
+                fi
+            fi
+        else
+            if [[ $in == tag ]]; then
+                tag="${tag}${tag:+ }${p}"
+            elif [[ $in == term ]]; then
+                term="${term}${term:+ }${p}"
+            else
+                echo "WARNING: Unable to determine if ${p} is a term or tag." >&2
+            fi
+        fi
+    done
+
+    if [[ $1 == help || -z $term && -z $tag ]]; then
+        cub_search_help
+        return 1
+    fi
+
+    if [[ -z $token ]]; then
+        no_token_message
+        return 1
+    fi
+
+    local -a params
+    [[ -n $tag ]] && params+=("tag=${tag}")
+    [[ -n $term ]] && params+=("term=${term}")
+    [[ -n $token ]] && params+=("token=${token}")
+
+    local json="$(bear search "${params[@]}")"
+    local filter
+    filter=".notes | fromjson | .[] | select(.title | contains(\"$term\"))"
+    filter="${filter} | \"\(.title) (\(.identifier))\""
+    while read -r; do
+        echo "$REPLY"
+    done < <(echo "$json" | jq -r "$filter")
+
+    if [[ $all == yes ]]; then
+        filter=".notes | fromjson | .[] | select(.title | contains(\"$term\") | not)"
+        filter="${filter} | \"\(.title) (\(.identifier))\""
+        while read -r; do
+            echo "$REPLY"
+        done < <(echo "$json" | jq -r "$filter")
+    fi
+}
+cub_search_help() {
+    echo "Search your Bear notes. Requires a term or tag. By default search" \
+         "will return exact matches from the note title. To include all" \
+         "matching notes use the --all option."
+    echo
+    echo "Examples:"
+    echo "  cub search Some search terms"
+    echo "  cub search term=Some search terms"
+    echo "  cub search tag=someTag"
+    echo "  cub search tag=someTag term=Some search terms"
+    echo "  cub search --all Some search terms"
+}
+
+#########
+# cub_show()
+# Dsiplay the contents of a note.
+###
+cub_show() {
+    local arg
+    if [[ $1 == id=* || $1 == title=* ]]; then
+        arg="$*"
+    elif [[ -n $* ]]; then
+        arg="title=${*}"
+    fi
+
+    if [[ -z $arg ]]; then
+        cub_show_help
+        return 1
+    fi
+
+    local json="$(bear open-note "$arg")"
+    if [[ -n $json ]]; then
+        echo "$json" | jq -r ".note"
+    fi
+}
+cub_show_help() {
+    echo "Show an existing note. Requires a title or identifier."
+    echo
+    echo "Examples:"
+    echo "  cub show My Note Title"
+    echo "  cub show title=My Note Title"
+    echo "  cub show id=XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+}
+
+#########
+# cub_token()
+# Display or set the token used for some Bear x-callback-url actions.
+###
+cub_token() {
+    local current_token="$(get_bear_token)"
+    local new_token="$1"
+
+    if [[ -z $new_token ]]; then
+        if [[ -z $current_token ]]; then
+            cub_token_help
+        else
+            echo "Current token: ${current_token}"
+        fi
+    else
+        set_bear_token "$new_token"
+    fi
+}
+cub_token_help() {
+    echo "Set or display a token for accessing protected Bear information. Once a" \
+         "token has been set, calling this without specifying a token will display" \
+         "the currently set token."
+    echo
+    echo "Examples:"
+    echo "  cub token"
+    echo "  cub token XXXXXX-XXXXXX-XXXXXX"
+}
+
+
+check_dependencies() {
+    local -i error=0
+    for dep in "${DEPENDENCIES[@]}"; do
+        if ! hash "${dep}" &>/dev/null; then
+            error+=1
+            echo "Couldn't find dependency: ${dep}" >&2
+            local url_var="URL_${dep}"
+            local url="${!url_var}"
+            if [[ -n $url ]]; then
+                echo "You can get this application from ${url}"
+            fi
+        fi
+    done
+    (( error > 0 )) && exit 1
+}
+
+get_bear_token() {
+    local token=""
+    local line="$(grep "^TOKEN=" "$CONFIG" 2>/dev/null)"
+    token="${line#TOKEN=}"
+    echo "$token"
+}
+
+set_bear_token() {
+    local config
+    if [[ -e $CONFIG ]]; then
+        config="$(grep -v "^TOKEN=" "$CONFIG")"$'\n'"TOKEN=${1}"$'\n'
+    else
+        config="# ~/.cubrc"$'\n'"TOKEN=${1}"
+    fi
+    echo -n "$config" > "$CONFIG"
+}
+
+editor() {
+    local file="$1"
+    # $EDITOR is the correct variable here, disable the shellcheck warning.
+    # shellcheck disable=SC2153
+    local editor="$EDITOR"
+
+    if [[ -z $editor ]]; then
+        if hash nano &>/dev/null; then
+            editor="nano"
+        elif hash vi &>/dev/null; then
+            editor="vi"
+        elif hash emacs &>/dev/null; then
+            editor="emacs"
+        else
+            echo "EDITOR not set and unable to identify a default. You'll need to set" \
+                 "the EDITOR environment variable to point to your preferred editor" \
+                 "and try again." >&2
+            return 1
+        fi
+    fi
+    "$editor" "$file"
+}
+
+no_token_message() {
+    echo "No Bear token has been set. You can find your token in the Bear app under" \
+         "Help -> Advanced -> API Token. This needs to be set in Cub by running" \
+         "'cub token <token>'." >&2
+}
+
+show_error() {
+    local x_callback_url="$1"
+    local error_message="$(jq -r .errorMessage)"
+    if [[ -n $error_message ]]; then
+        (
+            echo "ERROR: ${x_callback_url}"
+            echo "ERROR: ${error_message}"
+        ) >&2
+    fi
+}
+
+url_encode() {
+    local in="$1"
+    echo -n "$in" | jq -Rrs '@uri'
+}
+
+
+check_dependencies
+
+
+if [[ -z $* ]]; then
+    cub_help
+    exit 0
+fi
+
+
+# Try to find a function for the given action. If none found, use it as a direct action.
+action="${1}"
+function="cub_${action}"
+if [[ $(type -t "${function}") == function ]]; then
+    shift
+    "$function" "$@"
+else
+    echo "Helper not found for ${1}. Trying via direct call." >&2
+    bear "$@"
+fi
+
