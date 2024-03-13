@@ -14,7 +14,14 @@ Currently supported actions:
 
 Use 'cub help &lt;action&gt;' to get action specific help.
 
-## create
+## Dependencies
+
+jq - https://jqlang.github.io/jq/download/
+xcall - https://github.com/martinfinke/xcall
+
+## Actions
+
+### create
 
 Create a new note.
 
@@ -23,7 +30,7 @@ Example:
   cub create
 ```
 
-## edit
+### edit
 
 Edit an existing note. Requires a title or identifier.
 
@@ -34,7 +41,7 @@ Examples:
   cub edit id=XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
 ```
 
-## help
+### help
 
 Show help information for the given action.
 
@@ -47,7 +54,7 @@ Examples:
   cub help token
 ```
 
-## search
+### search
 
 Search your Bear notes. Requires a term or tag. By default search will return exact matches from the note title. To include all matching notes use the --all option.
 
@@ -60,7 +67,7 @@ Examples:
   cub search --all Some search terms
 ```
 
-## show
+### show
 
 Show an existing note. Requires a title or identifier.
 
@@ -71,7 +78,7 @@ Examples:
   cub show id=XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
 ```
 
-## token
+### token
 
 Set or display a token for accessing protected Bear information. Once a token has been set, calling this without specifying a token will display the currently set token.
 

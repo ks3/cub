@@ -1,0 +1,27 @@
+#!/bin/bash
+
+declare in_example_block="no"
+declare -i line_number=1
+
+while IFS= read -r line; do
+    line="${line//</&lt;}"
+    line="${line//>/&gt;}"
+
+    if [[ $in_example_block == yes && -z $line ]]; then
+        in_example_block="no"
+        echo '```'
+    fi
+
+    if (( line_number == 1 )); then
+        echo -n "# "
+    fi
+    echo "$line"
+
+    if [[ $line == Example: || $line == Examples: ]]; then
+        in_example_block="yes"
+        echo '```'
+    fi
+
+    line_number+=1
+done < <(./cub doc)
+

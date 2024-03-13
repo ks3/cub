@@ -89,11 +89,26 @@ cub_create_help() {
 cub_doc() {
     cub_help
     echo
+
+    local d
+    local url_var
+    local url
+    echo "## Dependencies"
+    echo
+    for d in "${DEPENDENCIES[@]}"; do
+        url_var="URL_${d}"
+        url="${!url_var}"
+        echo "${d}${url:+ - }${url}"
+    done
+    echo
+
     local a
+    echo "## Actions"
+    echo
     for a in "${ACTIONS[@]}"; do
         local help="cub_${a}_help"
         if [[ $(type -t "$help") == function ]]; then
-            echo "## ${a}"
+            echo "### ${a}"
             echo
             "$help"
             echo
@@ -156,7 +171,7 @@ cub_help() {
         echo "Currently supported actions:"
         local a
         for a in "${ACTIONS[@]}"; do
-            echo "  ${a}"
+            echo "- ${a}"
         done
         echo
         echo "Use 'cub help <action>' to get action specific help."
