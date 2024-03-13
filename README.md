@@ -16,8 +16,8 @@ Use 'cub help &lt;action&gt;' to get action specific help.
 
 ## Dependencies
 
-jq - https://jqlang.github.io/jq/download/
-xcall - https://github.com/martinfinke/xcall
+- jq (https://jqlang.github.io/jq/download/)
+- xcall (https://github.com/martinfinke/xcall)
 
 ## Actions
 

@@ -98,7 +98,7 @@ cub_doc() {
     for d in "${DEPENDENCIES[@]}"; do
         url_var="URL_${d}"
         url="${!url_var}"
-        echo "${d}${url:+ - }${url}"
+        echo "- ${d}${url:+ (}${url}${url:+)}"
     done
     echo
 
