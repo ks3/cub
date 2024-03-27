@@ -304,12 +304,18 @@ cub_show() {
     fi
 
     local json="$(bear open-note "$arg")"
+    local viewer="cat"
+    if hash glow &>/dev/null; then
+        viewer="glow"
+    fi
     if [[ -n $json ]]; then
-        echo "$json" | jq -r ".note"
+        echo "$json" | jq -r ".note" | "$viewer"
     fi
 }
 cub_show_help() {
-    echo "Show an existing note. Requires a title or identifier."
+    echo "Show an existing note. Requires a title or identifier. If you have" \
+         "the glow command available in your path it will be used to format" \
+         "the note."
     echo
     echo "Examples:"
     echo "  cub show My Note Title"
