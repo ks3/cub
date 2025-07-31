@@ -52,10 +52,10 @@ bear() {
 
     local param
     for param in "$@"; do
-        local name="$(url_encode "${param%=*}")"
+        local name="$(url_encode "${param%%=*}")"
         params="${params}&${name}"
         if [[ $param =~ = ]]; then
-            local value="$(url_encode "${param#"${name}="}")"
+            local value="$(url_encode "${param#*=}")"
             params="${params}=${value}"
         fi
     done
